@@ -1538,8 +1538,12 @@ function generateNbmPrompt() {
   const styleCN = (typeof selectedStyle !== 'undefined' && Array.isArray(STYLES))
     ? (STYLES.find(s => s[1] === selectedStyle)?.[0] || '')
     : '';
-  const styleLine = styleCN ? `整体视觉风格：${styleCN}。` : '';
-  const p = `请根据我上传的《${title}》课文，给我 ${n} 页的画面描述，每一页用一段话说明画面内容（人物、动作、场景）即可。${styleLine}`;
+  const styleLine = styleCN ? `\n整体视觉风格：${styleCN}。` : '';
+  const p = `请根据《${title}》，给我 ${n} 页简报插图建议大纲，每一页列出来包含：
+1. 原文（这一页对应的课文原句）
+2. 插图建议（画面内容：人物、动作、场景）
+
+整体要用说故事的方式呈现。${styleLine}`;
   const out = document.getElementById('nbm-out');
   if (out) out.textContent = p;
 }
