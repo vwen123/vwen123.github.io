@@ -2680,6 +2680,13 @@ function updateChunkText(i, val) {
 // 切点 = 某条 chunk 的 sceneIdx 与上一条不同
 function toggleCutPoint(i) {
   if (i <= 0 || !lastChunks.length) return;
+  // 先把 textarea 里未保存的内容同步回 lastChunks（避免 re-render 丢编辑）
+  document.querySelectorAll('#srt-preview textarea').forEach(ta => {
+    const row = ta.closest('.srt-row');
+    const idx = parseInt(row?.dataset.idx);
+    if (!isNaN(idx) && lastChunks[idx]) lastChunks[idx].text = ta.value;
+  });
+
   const prev = lastChunks[i-1].sceneIdx;
   const curr = lastChunks[i].sceneIdx;
   if (prev !== curr) {
@@ -2696,6 +2703,10 @@ function toggleCutPoint(i) {
   lastChunks.forEach(c => { c.sceneIdx = remap[c.sceneIdx]; });
   lastSRT = chunksToSRT(lastChunks);
   renderSrtPreviewGrouped(lastChunks);
+  // 状态提示：下载/打包会同步到当前段数
+  const segCount = keys.length;
+  const st = document.getElementById('srt-status');
+  if (st) st.innerHTML = `✂ 切点已更新 → 共 ${segCount} 段（下载 SRT / 打包 WAV 都会以此为准）`;
 }
 function secToSRT(s) {
   s = s || 0;
@@ -2705,7 +2716,17 @@ function secToSRT(s) {
   const ms = Math.floor((s % 1) * 1000).toString().padStart(3, '0');
   return `${h}:${m}:${sec},${ms}`;
 }
+// 同步面板上所有 textarea 的最新值回 lastChunks
+function syncPanelEdits() {
+  document.querySelectorAll('#srt-preview textarea').forEach(ta => {
+    const row = ta.closest('.srt-row');
+    const idx = parseInt(row?.dataset.idx);
+    if (!isNaN(idx) && lastChunks[idx]) lastChunks[idx].text = ta.value;
+  });
+}
+
 function downloadGeneratedSRT() {
+  syncPanelEdits();
   // 以面板当前编辑的 chunks 为准，每次下载都用最新内容
   const srt = (lastChunks && lastChunks.length) ? chunksToSRT(lastChunks) : lastSRT;
   if (!srt) { showToast('请先上传音频转录'); return; }
@@ -2778,6 +2799,7 @@ function computeSplitPoints(totalSec, n, chunks) {
 async function splitAudioByScenes() {
   if (!lastAudio) { showToast('请先上传音频'); return; }
   if (typeof JSZip === 'undefined') { showToast('JSZip 未加载，请检查网络'); return; }
+  syncPanelEdits();  // 打包前先把面板编辑同步回来
   const sr = lastSampleRate;
   const totalSec = lastAudio.length / sr;
 
