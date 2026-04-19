@@ -616,7 +616,7 @@
                 <option value="Aoede" selected>Aoede · 温柔说故事（女，首推）</option>
                 <option value="Sulafat">Sulafat · 温暖亲切（女）</option>
                 <option value="Vindemiatrix">Vindemiatrix · 温和轻柔（女，适合睡前故事）</option>
-                <option value="Achird">Achird · 友善亲切（女）</option>
+                <option value="Achird">Achird · 友善亲切（男）</option>
                 <option value="Callirrhoe">Callirrhoe · 随和温润（女）</option>
                 <option value="Achernar">Achernar · 柔软气音（女）</option>
               </optgroup>
@@ -644,7 +644,7 @@
                 <option value="Orus">Orus · 坚实有力（男）</option>
               </optgroup>
               <optgroup label="── 🧙 角色扮演 · 特色个性 ──">
-                <option value="Gacrux">Gacrux · 成熟智者（男，老人/长者）</option>
+                <option value="Gacrux">Gacrux · 成熟智者（女，长者/奶奶）</option>
                 <option value="Algenib">Algenib · 低沉磁性（男）</option>
                 <option value="Enceladus">Enceladus · 气息感（男）</option>
                 <option value="Algieba">Algieba · 柔顺（男）</option>
@@ -2010,11 +2010,11 @@ async function aiSuggestVoice() {
   status.textContent = '⏳ AI 分析中...';
   try {
     const voiceList = `
-说故事/抒情：Aoede(温柔女) Sulafat(温暖女) Vindemiatrix(温和女,睡前故事) Achird(友善女) Callirrhoe(随和女) Achernar(柔软女)
+说故事/抒情：Aoede(温柔女) Sulafat(温暖女) Vindemiatrix(温和女,睡前故事) Achird(友善男) Callirrhoe(随和女) Achernar(柔软女)
 教学讲解：Charon(沉稳男,纪录片) Rasalgethi(博学男,老师) Sadaltager(知识男) Iapetus(清晰男) Erinome(清晰女) Schedar(平稳男)
 动画角色：Puck(俏皮男,卡通) Fenrir(激动男,英雄反派) Sadachbia(活灵活现男) Laomedeia(活泼女) Leda(年轻女,学生) Pulcherrima(有力女)
 主播播报：Zephyr(明亮女) Autonoe(明亮女) Alnilam(坚定男) Kore(坚定女) Orus(坚实男)
-特色角色：Gacrux(成熟男,智者长者) Algenib(低沉磁性男) Enceladus(气息男) Algieba(柔顺男) Despina(流畅女) Umbriel(随性男) Zubenelgenubi(闲适男)
+特色角色：Gacrux(成熟女,长者奶奶) Algenib(低沉磁性男) Enceladus(气息男) Algieba(柔顺男) Despina(流畅女) Umbriel(随性男) Zubenelgenubi(闲适男)
 `.trim();
     const prompt = `你是影视配音选角专家。根据以下内容，从 Gemini TTS 声线清单中挑一个最合适的，并用一句简短中文描述朗读语气（8-15 字）。
 
@@ -2647,25 +2647,35 @@ function renderSrtPreviewGrouped(chunks, n) {
 
   const html = chunks.map((c, i) => {
     const [a, b] = c.timestamp || [0, 0];
+    const end = b || a + 1;
     const isCut = i > 0 && c.sceneIdx !== chunks[i-1].sceneIdx;
     const divider = isCut
-      ? `<div style="margin:10px 0;border-top:2px dashed var(--phase-accent-solid);position:relative"><span style="position:absolute;top:-10px;left:12px;background:var(--phase-inner);padding:0 8px;font-size:0.7rem;color:var(--phase-accent-solid);font-weight:600">✂ 切点</span></div>`
+      ? `<div style="margin:10px 0;border-top:2px dashed var(--phase-accent-solid);position:relative"><span style="position:absolute;top:-10px;left:12px;background:var(--phase-inner);padding:0 8px;font-size:0.7rem;color:var(--phase-accent-solid);font-weight:600">✂ 切点 #${i}</span></div>`
       : '';
-    const btnLabel = isCut ? '✕ 取消切点' : '✂ 在此切段';
+    const cutBtn = isCut
+      ? `<button type="button" title="取消切点" onclick="toggleCutPoint(${i})" style="padding:3px 6px;border-radius:6px;border:1px solid var(--phase-accent-solid);background:var(--phase-accent-solid);color:#1a1d24;font-size:0.68rem;cursor:pointer;font-weight:600">✕</button>`
+      : `<button type="button" title="在此处切段" onclick="toggleCutPoint(${i})" style="padding:3px 6px;border-radius:6px;border:1px solid var(--phase-accent-solid);background:transparent;color:var(--phase-accent-solid);font-size:0.68rem;cursor:pointer">✂</button>`;
+    const timeStyle = 'width:92px;padding:6px 8px;border:1px solid var(--phase-border);border-radius:8px;background:var(--phase-inner);color:var(--fg);font-family:monospace;font-size:0.78rem;text-align:center';
     return `${divider}
-      <div class="srt-row" data-idx="${i}" style="padding:6px 4px;border-bottom:1px solid var(--phase-border);display:flex;gap:8px;align-items:flex-start">
-        <div style="min-width:140px;font-family:monospace;font-size:0.7rem;color:var(--muted);padding-top:6px">
-          #${i+1}<br>${secToSRT(a)}<br>→ ${secToSRT(b || a+1)}
+      <div class="srt-row" data-idx="${i}" style="padding:8px 4px;display:flex;gap:10px;align-items:stretch">
+        <div style="min-width:22px;font-size:0.7rem;color:var(--muted);padding-top:8px;text-align:center">#${i+1}</div>
+        <textarea rows="1" oninput="updateChunkText(${i}, this.value); autoGrow(this)" placeholder="字幕内容..." style="flex:1;font-size:0.88rem;line-height:1.5;border:1px solid var(--phase-border);border-radius:10px;padding:10px 12px;background:var(--phase-inner);color:var(--fg);resize:none;min-height:64px">${escapeHtml((c.text || '').trim())}</textarea>
+        <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;justify-content:space-between">
+          <input type="text" value="${secToSRTShort(a)}" title="开始时间 h:mm:ss.ms" onchange="updateChunkTime(${i}, 'start', this.value)" style="${timeStyle}">
+          <input type="text" value="${secToSRTShort(end)}" title="结束时间 h:mm:ss.ms" onchange="updateChunkTime(${i}, 'end', this.value)" style="${timeStyle}">
         </div>
-        <textarea rows="1" oninput="updateChunkText(${i}, this.value); autoGrow(this)" style="flex:1;font-size:0.82rem;line-height:1.5;border:1px solid var(--phase-border);border-radius:6px;padding:6px 8px;background:var(--phase-inner);color:var(--fg);resize:none">${escapeHtml((c.text || '').trim())}</textarea>
-        <div style="display:flex;flex-direction:column;gap:3px;margin-top:4px;flex-shrink:0">
+        <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;justify-content:center">
           <button type="button" title="下方加一条" onclick="addSrtRow(${i})" style="padding:2px 8px;border-radius:6px;border:1px solid #10b981;background:transparent;color:#10b981;font-size:0.78rem;cursor:pointer;font-weight:600">➕</button>
           <button type="button" title="删除这条" onclick="removeSrtRow(${i})" style="padding:2px 8px;border-radius:6px;border:1px solid #ef4444;background:transparent;color:#ef4444;font-size:0.78rem;cursor:pointer;font-weight:600">➖</button>
-          <button type="button" onclick="toggleCutPoint(${i})" style="padding:3px 6px;border-radius:6px;border:1px solid var(--phase-accent-solid);background:${isCut?'var(--phase-accent-solid)':'transparent'};color:${isCut?'#1a1d24':'var(--phase-accent-solid)'};font-size:0.66rem;cursor:pointer;white-space:nowrap">${btnLabel}</button>
+          ${cutBtn}
         </div>
       </div>`;
   }).join('');
-  preview.innerHTML = `<div class="hint" style="margin:0 0 8px;color:var(--muted)">✏️ 文字可直接修改；点「✂ 在此切段」调整切点，下载 SRT 和按幕切割打包都以此为准</div>${html}`;
+  const topBar = `<div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px">
+    <button type="button" onclick="addSrtRow(${chunks.length - 1})" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;border:1px solid var(--phase-accent-solid);background:transparent;color:var(--phase-accent-solid);font-size:0.82rem;cursor:pointer;font-weight:600">＋ 新增字幕</button>
+    <span style="font-size:0.7rem;color:var(--muted)">共 ${chunks.length} 条 · ✏️ 文字/时间均可直接编辑</span>
+  </div>`;
+  preview.innerHTML = `${topBar}${html}`;
   // 初始化 textarea 高度
   preview.querySelectorAll('textarea').forEach(autoGrow);
 }
@@ -2759,6 +2769,37 @@ function toggleCutPoint(i) {
   const segCount = keys.length;
   const st = document.getElementById('srt-status');
   if (st) st.innerHTML = `✂ 切点已更新 → 共 ${segCount} 段（下载 SRT / 打包 WAV 都会以此为准）`;
+}
+// 紧凑格式 h:mm:ss.ss（给面板编辑用；下载 SRT 仍用完整 secToSRT）
+function secToSRTShort(s) {
+  s = +s || 0;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
+  const sec = (s % 60).toFixed(2).padStart(5, '0');
+  return `${h}:${m}:${sec}`;
+}
+// 解析 "h:mm:ss.ms" / "mm:ss" / 纯秒数 → 秒
+function parseTimeInput(str) {
+  if (str == null) return null;
+  str = String(str).trim().replace(',', '.');
+  if (!str) return null;
+  const parts = str.split(':').map(x => x.trim());
+  let s = 0;
+  if (parts.length === 3) s = (+parts[0] || 0) * 3600 + (+parts[1] || 0) * 60 + (+parts[2] || 0);
+  else if (parts.length === 2) s = (+parts[0] || 0) * 60 + (+parts[1] || 0);
+  else s = +parts[0];
+  return isNaN(s) ? null : Math.max(0, s);
+}
+function updateChunkTime(i, which, val) {
+  if (!lastChunks[i]) return;
+  const sec = parseTimeInput(val);
+  if (sec === null) { renderSrtPreviewGrouped(lastChunks); return; }
+  const [a, b] = lastChunks[i].timestamp || [0, 0];
+  if (which === 'start') lastChunks[i].timestamp = [sec, Math.max(sec, b || sec + 1)];
+  else lastChunks[i].timestamp = [Math.min(a, sec), sec];
+  lastSRT = chunksToSRT(lastChunks);
+  const st = document.getElementById('srt-status');
+  if (st) st.innerHTML = `⏱ 时间已更新（下载 / 打包会同步）`;
 }
 function secToSRT(s) {
   s = s || 0;
