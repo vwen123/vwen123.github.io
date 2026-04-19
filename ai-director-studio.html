@@ -450,7 +450,7 @@
           <span>📖 贴课文/剧本</span>
         </label>
         <span style="margin-left:10px;font-size:0.75rem;color:var(--muted)">幕数</span>
-        <input type="number" id="g-num-scenes" value="5" min="2" max="12" style="width:54px;text-align:center">
+        <input type="number" id="g-num-scenes" value="5" min="2" max="12" style="width:54px;text-align:center" oninput="onNumScenesChange()">
         <div style="flex:1"></div>
         <button class="mega-btn" onclick="oneClickAll()">🚀 一键全自动</button>
       </div>
@@ -1004,6 +1004,38 @@ function pickStyle(el) {
   document.querySelectorAll('.style-item').forEach(x => x.classList.toggle('selected', x.dataset.en === selectedStyle));
   updateStyleLabel();
   save();
+  syncAllFromCore();
+}
+
+// 当幕数 / 风格 / 主题 改变时，同步刷新 NBM Prompt、旁白、分镜 Prompt、封面
+function syncAllFromCore() {
+  try {
+    const mode = document.querySelector('input[name="src-mode"]:checked')?.value || 'auto';
+    // 1) NBM Prompt（只在 NBM 模式）
+    if (mode === 'notebooklm') {
+      if (typeof generateNbmPrompt === 'function') generateNbmPrompt();
+    }
+    // 2) 分镜 Prompt（若已生成过）
+    if (typeof scenes !== 'undefined' && Array.isArray(scenes) && scenes.length && typeof buildScenePrompt === 'function') {
+      scenes.forEach(s => {
+        if (s.startPrompt) s.startPrompt = buildScenePrompt(s, 'start');
+        if (s.endPrompt)   s.endPrompt   = buildScenePrompt(s, 'end');
+      });
+      if (typeof renderScenes === 'function') renderScenes();
+      if (typeof renderExportTable === 'function') renderExportTable();
+    }
+    // 3) 旁白（只在语音面板展开时）
+    const voice = document.getElementById('extra-voice');
+    if (voice && voice.style.display !== 'none' && voice.style.display !== '') {
+      if (typeof generateNarration === 'function') generateNarration();
+    }
+    // 4) 封面（若展开）
+    const cover = document.getElementById('extra-cover');
+    if (cover && cover.style.display !== 'none' && cover.style.display !== '') {
+      if (typeof generateCover === 'function') { generateCover('front'); generateCover('back'); }
+    }
+    save();
+  } catch (e) { console.warn('syncAllFromCore:', e); }
 }
 function updateStyleLabel() {
   const lbl = document.getElementById('style-selected-label');
@@ -1015,6 +1047,22 @@ function updateStyleLabel() {
   }
 }
 document.getElementById('style-search').addEventListener('input', e => renderStyleGrid(e.target.value));
+
+// 幕数 / 标题 / 主题 改变 → 防抖同步刷新（NBM / 旁白 / 分镜 / 封面）
+function onNumScenesChange() {
+  clearTimeout(window.__numScenesTimer);
+  window.__numScenesTimer = setTimeout(() => {
+    syncAllFromCore();
+  }, 300);
+}
+['g-title', 'g-theme', 'g-author', 'back-title'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', () => {
+    clearTimeout(window.__coreTextTimer);
+    window.__coreTextTimer = setTimeout(() => syncAllFromCore(), 500);
+  });
+});
 
 // ═════════════════════════════════════════════════════════════
 //  角色
