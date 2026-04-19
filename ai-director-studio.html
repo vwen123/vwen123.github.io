@@ -2525,10 +2525,47 @@ async function handleAudioUpload(e) {
 
 function chunksToSRT(chunks) {
   if (!chunks.length) return '';
-  return chunks.map((c, i) => {
+  // 把每条过长的 chunk 按标点/字数进一步切分，时间按字数比例分配
+  const entries = [];
+  chunks.forEach(c => {
     const [start, end] = c.timestamp || [0, 0];
-    return `${i+1}\n${secToSRT(start)} --> ${secToSRT(end || start + 2)}\n${(c.text || '').trim()}\n`;
-  }).join('\n');
+    const e0 = end || start + 2;
+    const pieces = splitLongText((c.text || '').trim(), 18);
+    const totalLen = pieces.reduce((a, p) => a + p.length, 0) || 1;
+    let pos = 0;
+    pieces.forEach(p => {
+      const s = start + (e0 - start) * (pos / totalLen);
+      const e = start + (e0 - start) * ((pos + p.length) / totalLen);
+      entries.push({ start: s, end: e, text: p });
+      pos += p.length;
+    });
+  });
+  return entries.map((x, i) =>
+    `${i+1}\n${secToSRT(x.start)} --> ${secToSRT(x.end)}\n${x.text}\n`
+  ).join('\n');
+}
+
+// 按标点（。！？，、；： 换行）优先切分，超过 maxLen 时强制切
+function splitLongText(text, maxLen = 18) {
+  text = (text || '').trim();
+  if (!text) return [];
+  if (text.length <= maxLen) return [text];
+  const parts = [];
+  let buf = '';
+  for (const ch of text) {
+    buf += ch;
+    const isPunct = /[。！？，、；：!?,;:]/.test(ch);
+    if (isPunct && buf.length >= Math.ceil(maxLen * 0.5)) {
+      parts.push(buf.trim());
+      buf = '';
+    } else if (buf.length >= maxLen) {
+      // 超长也要切
+      parts.push(buf.trim());
+      buf = '';
+    }
+  }
+  if (buf.trim()) parts.push(buf.trim());
+  return parts.filter(Boolean);
 }
 
 // 把旁白文本按「第N幕：」切成 N 段，去掉前缀
@@ -2795,16 +2832,29 @@ async function splitAudioByScenes() {
           const [cs] = c.timestamp || [0, 0];
           return cs >= startT - 0.1 && cs < endT;
         });
-    const segChunks = sceneChunks.map((c, k) => {
-      const [cs, ce] = c.timestamp || [0,0];
-      const segDur = endT - startT;
-      return {
-        idx: k + 1,
-        start: Math.max(0, Math.min(segDur, cs - startT)),
-        end:   Math.max(0, Math.min(segDur, (ce || cs + 2) - startT)),
-        text: (c.text || '').trim()
-      };
+    // 把每个 chunk 按标点/字数再细分，避免一行字幕太长
+    const segDur = endT - startT;
+    const subEntries = [];
+    sceneChunks.forEach(c => {
+      const [cs, ce] = c.timestamp || [0, 0];
+      const s0 = Math.max(0, Math.min(segDur, cs - startT));
+      const e0 = Math.max(s0, Math.min(segDur, (ce || cs + 2) - startT));
+      const pieces = splitLongText((c.text || '').trim(), 18);
+      const totalLen = pieces.reduce((a, p) => a + p.length, 0) || 1;
+      let pos = 0;
+      pieces.forEach(p => {
+        const sStart = s0 + (e0 - s0) * (pos / totalLen);
+        const sEnd   = s0 + (e0 - s0) * ((pos + p.length) / totalLen);
+        subEntries.push({ start: sStart, end: sEnd, text: p });
+        pos += p.length;
+      });
     });
+    const segChunks = subEntries.map((e, k) => ({
+      idx: k + 1,
+      start: e.start,
+      end: e.end,
+      text: e.text
+    }));
     if (segChunks.length) {
       const srt = segChunks.map(x =>
         `${x.idx}\n${secToSRT(x.start)} --> ${secToSRT(x.end)}\n${x.text}\n`
