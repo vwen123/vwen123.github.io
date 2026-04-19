@@ -398,10 +398,14 @@
   <div class="api-bar-inner">
     <span class="api-icon">🔑</span>
     <span class="api-label">Gemini API Key</span>
-    <input type="password" id="gemini-api-key" placeholder="AIzaSy... (仅存本地浏览器)" oninput="onApiKeyChange(this.value)">
+    <input type="password" id="gemini-api-key" placeholder="AIzaSy... (仅存本地浏览器)"
+           oninput="onApiKeyChange(this.value)"
+           onblur="maybeHideKey()">
+    <span id="api-key-mask" style="display:none;font-family:monospace;color:#94a3b8;font-size:0.8rem"></span>
+    <button id="api-key-edit-btn" type="button" onclick="editApiKey()" style="display:none;padding:3px 10px;border-radius:6px;background:#334155;border:none;color:#e8ecf4;font-size:0.72rem;cursor:pointer">修改</button>
     <span id="api-status" class="api-status api-off">○ 未启用</span>
     <a href="https://aistudio.google.com/apikey" target="_blank" class="api-link">免费申请 →</a>
-    <span class="api-hint">开启后：AI 可根据内容自动推荐声线语气、智能润色旁白、一键生成语音</span>
+    <span class="api-hint">开启后：AI 可根据内容自动推荐声线语气、智能润色旁白、生成角色/分镜、配音</span>
   </div>
 </div>
 
@@ -1850,6 +1854,7 @@ function onApiKeyChange(v) {
     document.body.classList.remove('ai-ready');
     statusEl.className = 'api-status api-off';
     statusEl.textContent = '○ 未启用';
+    showKeyField();
     return;
   }
   if (v.length < 20) {
@@ -1862,6 +1867,45 @@ function onApiKeyChange(v) {
   document.body.classList.add('ai-ready');
   statusEl.className = 'api-status api-on';
   statusEl.textContent = '● AI 已开启';
+}
+
+// 输入完成（失焦）后自动折叠：只显示掩码 + 修改按钮
+function maybeHideKey() {
+  const input = document.getElementById('gemini-api-key');
+  const v = (input?.value || '').trim();
+  if (v.length < 20) return;
+  hideKeyField(v);
+}
+
+function hideKeyField(v) {
+  const input = document.getElementById('gemini-api-key');
+  const mask = document.getElementById('api-key-mask');
+  const btn = document.getElementById('api-key-edit-btn');
+  if (!input || !mask || !btn) return;
+  // 掩码：保留前 4 + 末 4，中间 • 10 个
+  const last4 = v.slice(-4);
+  const head = v.slice(0, 4);
+  mask.textContent = `${head}••••••••${last4}`;
+  input.style.display = 'none';
+  mask.style.display = 'inline';
+  btn.style.display = 'inline-block';
+}
+
+function showKeyField() {
+  const input = document.getElementById('gemini-api-key');
+  const mask = document.getElementById('api-key-mask');
+  const btn = document.getElementById('api-key-edit-btn');
+  if (!input || !mask || !btn) return;
+  input.style.display = '';
+  mask.style.display = 'none';
+  btn.style.display = 'none';
+}
+
+function editApiKey() {
+  showKeyField();
+  const input = document.getElementById('gemini-api-key');
+  input?.focus();
+  input?.select();
 }
 
 // 统一的 Gemini 文字 API 调用
@@ -2612,11 +2656,15 @@ function save() {
 }
 function load() {
   try {
-    // 恢复 Gemini API key + 同步 AI 状态
+    // 恢复 Gemini API key + 同步 AI 状态（自动隐藏成掩码）
     const savedKey = localStorage.getItem('gemini_key');
     if (savedKey) {
       const el = document.getElementById('gemini-api-key');
-      if (el) { el.value = savedKey; onApiKeyChange(savedKey); }
+      if (el) {
+        el.value = savedKey;
+        onApiKeyChange(savedKey);
+        if (savedKey.length >= 20) hideKeyField(savedKey);
+      }
     }
     const raw = localStorage.getItem(KEY);
     if (!raw) { renderStyleTabs(); renderStyleGrid(); render(); toggleSourceMode(); return; }
