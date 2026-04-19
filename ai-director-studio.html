@@ -688,7 +688,7 @@
           <input type="file" id="audio-upload" accept="audio/*" onchange="handleAudioUpload(event)">
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:0.82rem;color:var(--fg);cursor:pointer">
             <input type="checkbox" id="srt-use-text" checked style="width:16px;height:16px">
-            📖 用旁白文本校正（字不会跑）
+            📖 用旁白文本校正
           </label>
         </div>
         <div id="srt-status" style="margin-top:8px;font-size:0.82rem;color:var(--muted)"></div>
@@ -1307,10 +1307,42 @@ async function oneClickAll() {
   generateCover('back');
   generateMusic();
 
+  // 7. 自动填旁白 + 语气描述（Gemini TTS 用）
+  try { if (typeof generateNarration === 'function') generateNarration(); } catch(e){}
+  autoFillVoiceStyle();
+
   render(); save();
   showToast('🚀 全部生成完成！往下滚动看结果');
   // 自动滚到分镜区
   setTimeout(() => document.querySelector('#scenes-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+}
+
+// 根据标题/主题/课文关键词，自动填入语气描述
+function autoFillVoiceStyle() {
+  const styleInput = document.getElementById('gemini-style');
+  if (!styleInput || styleInput.value.trim()) return; // 已填就不覆盖
+  const text = (
+    (document.getElementById('g-title')?.value || '') + ' ' +
+    (document.getElementById('g-theme')?.value || '') + ' ' +
+    (document.getElementById('g-source-text')?.value || '')
+  ).toLowerCase();
+  const has = kws => kws.some(k => text.includes(k));
+
+  let tone = '温柔亲切地讲述，像在说故事';  // 默认说故事
+  if (has(['童话','寓言','小朋友','儿童','绘本','森林','动物','小兔','小熊','小象'])) {
+    tone = '活泼温暖地说故事，像给小朋友读绘本，语速轻快';
+  } else if (has(['悲','哭','离别','死','战争','难过','思念'])) {
+    tone = '缓慢低沉地诉说，带一点哀伤与温柔';
+  } else if (has(['古诗','唐诗','宋词','文言','诗经','李白','杜甫'])) {
+    tone = '沉稳典雅地朗诵，语调平缓有韵律';
+  } else if (has(['科学','知识','科普','原理','实验','介绍'])) {
+    tone = '清晰专业地讲解，语速适中，像纪录片旁白';
+  } else if (has(['冒险','英雄','勇敢','奇幻','魔法','传说'])) {
+    tone = '富有戏剧感地讲述，语气起伏有张力';
+  } else if (has(['睡前','安静','夜晚','月','梦'])) {
+    tone = '温柔缓慢地讲述，像说睡前故事';
+  }
+  styleInput.value = tone;
 }
 
 // 无确认版本（供一键用）
