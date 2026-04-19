@@ -2652,6 +2652,11 @@ function toggleCutPoint(i) {
     // 新增切点：把 i 之后所有 sceneIdx 加 1
     for (let k = i; k < lastChunks.length; k++) lastChunks[k].sceneIdx += 1;
   }
+  // 重整 sceneIdx 为连续 0,1,2... 避免跳号
+  const keys = [...new Set(lastChunks.map(c => c.sceneIdx))].sort((a,b)=>a-b);
+  const remap = {};
+  keys.forEach((k, idx) => remap[k] = idx);
+  lastChunks.forEach(c => { c.sceneIdx = remap[c.sceneIdx]; });
   lastSRT = chunksToSRT(lastChunks);
   renderSrtPreviewGrouped(lastChunks);
 }
@@ -2745,15 +2750,15 @@ async function splitAudioByScenes() {
   const chunks = lastChunks || [];
   const hasSceneIdx = chunks.some(c => typeof c.sceneIdx === 'number');
   let points;
+  let sceneKeys = [];
   if (hasSceneIdx && chunks.length) {
-    const sceneKeys = [...new Set(chunks.map(c => c.sceneIdx))].sort((a,b)=>a-b);
+    sceneKeys = [...new Set(chunks.map(c => c.sceneIdx))].sort((a,b)=>a-b);
     points = [0];
     for (let s = 1; s < sceneKeys.length; s++) {
       const prevScene = chunks.filter(c => c.sceneIdx === sceneKeys[s-1]);
       const currScene = chunks.filter(c => c.sceneIdx === sceneKeys[s]);
       const prevEnd = prevScene.length ? (prevScene[prevScene.length-1].timestamp?.[1] || 0) : 0;
       const currStart = currScene.length ? (currScene[0].timestamp?.[0] || prevEnd) : prevEnd;
-      // 取中间点，有足够静音缓冲；若重叠则用较大值兜底
       const mid = (prevEnd + Math.max(prevEnd, currStart)) / 2;
       points.push(+mid.toFixed(3));
     }
@@ -2764,6 +2769,7 @@ async function splitAudioByScenes() {
       (scenes && scenes.length) || 5
     ));
     points = computeSplitPoints(totalSec, n, chunks);
+    sceneKeys = Array.from({length: points.length - 1}, (_, i) => i);
   }
 
   const status = document.getElementById('srt-status');
@@ -2782,8 +2788,9 @@ async function splitAudioByScenes() {
     zip.file(fname, wav);
 
     // 这段的字幕（相对时间重置为 0）—— 用当前面板里编辑过的文本
+    // 关键：用 sceneKeys[i] 去匹配真实 sceneIdx（删过切点后 sceneIdx 可能跳号）
     const sceneChunks = hasSceneIdx
-      ? chunks.filter(c => c.sceneIdx === i)
+      ? chunks.filter(c => c.sceneIdx === sceneKeys[i])
       : chunks.filter(c => {
           const [cs] = c.timestamp || [0, 0];
           return cs >= startT - 0.1 && cs < endT;
