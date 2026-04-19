@@ -393,7 +393,7 @@
   </div>
 </div>
 
-<!-- Gemini API Key · 全局配置（开启后解锁 AI 智能建议 / 配音 / 内容润色等功能） -->
+<!-- Gemini API Key · 全局配置（开启 Gemini TTS 生成旁白语音） -->
 <div class="api-bar">
   <div class="api-bar-inner">
     <span class="api-icon">🔑</span>
@@ -531,12 +531,10 @@
     </div>
     <div class="btn-row" style="margin-bottom:12px">
       <button class="btn btn-primary btn-sm" onclick="addChar()">+ 新增角色</button>
-      <button class="btn btn-primary btn-sm ai-only" onclick="aiGenerateCharacters()" style="background:linear-gradient(135deg,#8b5cf6,#ec4899)">✨ AI 智能生成角色</button>
       <button class="btn btn-cyan btn-sm" onclick="autoGenerateCharacters()">🤖 模板生成角色</button>
       <button class="btn btn-amber btn-sm" onclick="generateCharTurnaround()">⚡ 生成全部定装照 Prompts</button>
     </div>
-    <div id="ai-char-status" class="ai-only" style="font-size:0.78rem;color:var(--muted);margin-bottom:8px"></div>
-    <div id="chars-wrap"></div>
+    <div id="chars-wrap"</div>
 
     <div id="char-turnaround-wrap" style="display:none;margin-top:16px">
       <div class="extra-title"><span class="emoji">📸</span>角色定装照 Prompts（正面 / 背面 / 侧面）</div>
@@ -561,12 +559,10 @@
     </div>
     <div class="btn-row" style="margin-bottom:12px">
       <button class="btn btn-primary btn-sm" onclick="addScene()">+ 新增一幕</button>
-      <button class="btn btn-primary btn-sm ai-only" onclick="aiGenerateScenes()" style="background:linear-gradient(135deg,#8b5cf6,#ec4899)">✨ AI 智能生成分镜</button>
       <button class="btn btn-green btn-sm" onclick="generateAll()">⚡ 全部一键生成 Prompt</button>
       <button class="btn btn-outline btn-sm" onclick="document.getElementById('export-area').scrollIntoView({behavior:'smooth'})">⬇ 跳至导出</button>
     </div>
-    <div id="ai-scene-status" class="ai-only" style="font-size:0.78rem;color:var(--muted);margin-bottom:8px"></div>
-    <div id="scenes-wrap"></div>
+    <div id="scenes-wrap"</div>
   </div>
 
   <!-- ═════ 步骤 4 · 语音字幕（含可选封面/主题曲） ═════ -->
@@ -610,16 +606,6 @@
         <div class="extra-head" style="margin-bottom:8px">
           <span class="extra-title"><span class="emoji">🎤</span>Gemini TTS · 一键转语音（gemini-2.5-flash-preview-tts）</span>
           <div class="ai-only-hide" style="font-size:0.72rem;color:#dc2626">⚠️ 请先在顶部填入 API Key</div>
-        </div>
-
-        <!-- AI 智能建议（API 开启后显示）-->
-        <div class="ai-only" style="margin-bottom:10px;padding:10px;background:rgba(139,92,246,0.08);border-radius:6px;border:1px solid rgba(139,92,246,0.25)">
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <strong style="font-size:0.78rem;color:#7c3aed">🤖 AI 智能配音</strong>
-            <button class="btn btn-primary btn-sm" onclick="aiSuggestVoice()">✨ 依内容自动推荐声线+语气</button>
-            <button class="btn btn-outline btn-sm" onclick="aiPolishNarration()">📝 润色旁白（更生动）</button>
-            <span id="ai-suggest-status" style="font-size:0.74rem;color:var(--muted)"></span>
-          </div>
         </div>
 
         <div class="grid-2" style="gap:10px">
@@ -669,7 +655,7 @@
             </select>
           </div>
           <div>
-            <label>🎨 语气描述（可选，AI 建议后自动填）</label>
+            <label>🎨 语气描述（可选）</label>
             <input type="text" id="gemini-style" placeholder="例：温柔缓慢地讲述 / 像说睡前故事 / 欢快活泼">
             <div class="btn-row" style="margin-top:6px">
               <button class="btn btn-outline btn-sm" onclick="testVoice()">▶️ 试听当前声线</button>
@@ -1289,25 +1275,6 @@ async function oneClickAll() {
   }
   if ((characters.length > 0 || scenes.length > 0) && !confirm('将重置所有角色和分镜并自动生成，确认？')) return;
 
-  // ── 若 AI 已启用 → 走 AI 路径（角色 + 分镜都交给 Gemini）──
-  if (document.body.classList.contains('ai-ready')) {
-    inferProjectParams();
-    characters = []; scenes = [];
-    showToast('🤖 AI 全自动模式...');
-    const bak = confirm; window.confirm = () => true;
-    try {
-      await aiGenerateCharacters();
-      await aiGenerateScenes();
-    } finally { window.confirm = bak; }
-    if (characters.length) generateCharTurnaround();
-    generateCover('front'); generateCover('back'); generateMusic();
-    render(); save();
-    showToast('✨ AI 全自动生成完成！');
-    setTimeout(() => document.querySelector('#scenes-wrap')?.scrollIntoView({ behavior: 'smooth' }), 300);
-    return;
-  }
-
-  // ── 未启用 AI → 走模板路径（原逻辑）──
   // 0. 自动填项目参数
   inferProjectParams();
 
