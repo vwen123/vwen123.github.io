@@ -594,15 +594,12 @@
         </div>
       </div>
       <div class="row-flex" style="margin-top:6px">
-        <span style="font-size:0.76rem;color:var(--muted)">篇幅：</span>
-        <label class="radio-pill" id="pill-len-short">
-          <input type="radio" name="nar-len" value="short" onchange="setNarrationLen('short')"><span>简短</span>
-        </label>
+        <span style="font-size:0.76rem;color:var(--muted)">风格：</span>
         <label class="radio-pill active" id="pill-len-std">
-          <input type="radio" name="nar-len" value="std" checked onchange="setNarrationLen('std')"><span>标准</span>
+          <input type="radio" name="nar-len" value="std" checked onchange="setNarrationLen('std')"><span>📖 原文旁白</span>
         </label>
         <label class="radio-pill" id="pill-len-rich">
-          <input type="radio" name="nar-len" value="rich" onchange="setNarrationLen('rich')"><span>丰富</span>
+          <input type="radio" name="nar-len" value="rich" onchange="setNarrationLen('rich')"><span>✨ 生动旁白</span>
         </label>
       </div>
       <div class="hint">① 生成旁白 → ② 选声线一键转语音 → ③ 试听满意 → ④ 转字幕 → ⑤ 按幕切割打包</div>
@@ -1750,10 +1747,11 @@ function applyAutoScenes(stories) {
 // ═════════════════════════════════════════════════════════════
 //  附加素材：旁白 / 封面 / 音乐
 // ═════════════════════════════════════════════════════════════
-let narrationLen = 'std'; // 'short' | 'std' | 'rich'
+let narrationLen = 'std'; // 'std' = 原文旁白 | 'rich' = 生动旁白
 function setNarrationLen(v) {
+  if (v !== 'rich') v = 'std';
   narrationLen = v;
-  ['short','std','rich'].forEach(k => {
+  ['std','rich'].forEach(k => {
     document.getElementById('pill-len-' + k)?.classList.toggle('active', k === v);
   });
   generateNarration();
@@ -1805,11 +1803,11 @@ function generateNarration() {
       }
     }
     let lines;
-    if (narrationLen === 'short') {
-      lines = buckets.map((b, i) => `第${i+1}幕：${shrinkText(b, 24)}`);
-    } else if (narrationLen === 'rich') {
+    if (narrationLen === 'rich') {
+      // 生动旁白：在原文基础上添加情境过渡句
       lines = buckets.map((b, i) => `第${i+1}幕：${b.replace(/\s+/g,'')}${richTail(i, buckets.length)}`);
     } else {
+      // 原文旁白：原文逐幕分配
       lines = buckets.map((b, i) => `第${i+1}幕：${b.replace(/\s+/g,'')}`);
     }
     out.value = lines.join(narrationLen === 'rich' ? '\n\n' : '\n');
@@ -1823,8 +1821,7 @@ function generateNarration() {
     const subject = title || '主角';
     const stories = buildArcTemplate(subject, theme, n);
     const lines = stories.map((s, i) => {
-      if (narrationLen === 'short') return `第${i+1}幕：${shrinkText(s, 22)}`;
-      if (narrationLen === 'rich')  return `第${i+1}幕：${s}${richTail(i, n)}`;
+      if (narrationLen === 'rich') return `第${i+1}幕：${s}${richTail(i, n)}`;
       return `第${i+1}幕：${s}`;
     });
     const intro = theme ? theme.replace(/[。.]$/, '') + '。' : `《${title}》的故事这样展开：`;
@@ -1836,8 +1833,7 @@ function generateNarration() {
   const intro = theme ? theme.replace(/[。.]$/, '') + '。' : `《${title}》的故事这样展开：`;
   const lines = scenes.map((s, i) => {
     const story = (s.story || '').trim();
-    if (narrationLen === 'short') return `第${i+1}幕：${shrinkText(story, 22)}`;
-    if (narrationLen === 'rich')  return `第${i+1}幕：${story}${richTail(i, scenes.length)}`;
+    if (narrationLen === 'rich') return `第${i+1}幕：${story}${richTail(i, scenes.length)}`;
     return `第${i+1}幕：${story}`;
   });
   out.value = intro + (narrationLen === 'rich' ? '\n\n' : '\n') + lines.join(narrationLen === 'rich' ? '\n\n' : '\n');
