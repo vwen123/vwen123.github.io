@@ -530,9 +530,11 @@
     </div>
     <div class="btn-row" style="margin-bottom:12px">
       <button class="btn btn-primary btn-sm" onclick="addChar()">+ 新增角色</button>
-      <button class="btn btn-cyan btn-sm" onclick="autoGenerateCharacters()">🤖 依标题/内容自动生成角色</button>
+      <button class="btn btn-primary btn-sm ai-only" onclick="aiGenerateCharacters()" style="background:linear-gradient(135deg,#8b5cf6,#ec4899)">✨ AI 智能生成角色</button>
+      <button class="btn btn-cyan btn-sm" onclick="autoGenerateCharacters()">🤖 模板生成角色</button>
       <button class="btn btn-amber btn-sm" onclick="generateCharTurnaround()">⚡ 生成全部定装照 Prompts</button>
     </div>
+    <div id="ai-char-status" class="ai-only" style="font-size:0.78rem;color:var(--muted);margin-bottom:8px"></div>
     <div id="chars-wrap"></div>
 
     <div id="char-turnaround-wrap" style="display:none;margin-top:16px">
@@ -558,9 +560,11 @@
     </div>
     <div class="btn-row" style="margin-bottom:12px">
       <button class="btn btn-primary btn-sm" onclick="addScene()">+ 新增一幕</button>
-      <button class="btn btn-green btn-sm" onclick="generateAll()">⚡ 全部一键生成</button>
+      <button class="btn btn-primary btn-sm ai-only" onclick="aiGenerateScenes()" style="background:linear-gradient(135deg,#8b5cf6,#ec4899)">✨ AI 智能生成分镜</button>
+      <button class="btn btn-green btn-sm" onclick="generateAll()">⚡ 全部一键生成 Prompt</button>
       <button class="btn btn-outline btn-sm" onclick="document.getElementById('export-area').scrollIntoView({behavior:'smooth'})">⬇ 跳至导出</button>
     </div>
+    <div id="ai-scene-status" class="ai-only" style="font-size:0.78rem;color:var(--muted);margin-bottom:8px"></div>
     <div id="scenes-wrap"></div>
   </div>
 
@@ -1221,7 +1225,7 @@ function autoGenerateCharacters() {
 // ═════════════════════════════════════════════════════════════
 //  一键全自动 — 把所有东西都生成
 // ═════════════════════════════════════════════════════════════
-function oneClickAll() {
+async function oneClickAll() {
   const title = document.getElementById('g-title').value.trim();
   const mode = document.querySelector('input[name="src-mode"]:checked')?.value || 'auto';
   const srcText = document.getElementById('g-source-text').value.trim();
@@ -1231,6 +1235,25 @@ function oneClickAll() {
   }
   if ((characters.length > 0 || scenes.length > 0) && !confirm('将重置所有角色和分镜并自动生成，确认？')) return;
 
+  // ── 若 AI 已启用 → 走 AI 路径（角色 + 分镜都交给 Gemini）──
+  if (document.body.classList.contains('ai-ready')) {
+    inferProjectParams();
+    characters = []; scenes = [];
+    showToast('🤖 AI 全自动模式...');
+    const bak = confirm; window.confirm = () => true;
+    try {
+      await aiGenerateCharacters();
+      await aiGenerateScenes();
+    } finally { window.confirm = bak; }
+    if (characters.length) generateCharTurnaround();
+    generateCover('front'); generateCover('back'); generateMusic();
+    render(); save();
+    showToast('✨ AI 全自动生成完成！');
+    setTimeout(() => document.querySelector('#scenes-wrap')?.scrollIntoView({ behavior: 'smooth' }), 300);
+    return;
+  }
+
+  // ── 未启用 AI → 走模板路径（原逻辑）──
   // 0. 自动填项目参数
   inferProjectParams();
 
@@ -1942,6 +1965,139 @@ ${current}`;
       save();
       status.textContent = '✅ 已润色';
     }
+  } catch (err) {
+    status.textContent = '❌ ' + (err.message || err);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════
+//  AI 生成角色 · 根据标题/主题/课文推导人设与外观锚点
+// ═════════════════════════════════════════════════════════════
+async function aiGenerateCharacters() {
+  if (!getApiKey()) { showToast('请先在顶部填入 API Key'); return; }
+  if (characters.length > 0 && !confirm(`将替换当前 ${characters.length} 个角色，确认？`)) return;
+  const status = document.getElementById('ai-char-status');
+  const title = document.getElementById('g-title').value.trim();
+  const theme = document.getElementById('g-theme').value.trim();
+  const source = document.getElementById('g-source-text').value.trim().slice(0, 1500);
+  const styleCN = (STYLES.find(s => s[1] === selectedStyle)?.[0]) || '';
+  if (!title && !theme && !source) { showToast('请先填写标题或贴课文'); return; }
+
+  status.textContent = '⏳ AI 设定角色中...';
+  try {
+    const prompt = `你是影视美术指导，专门为 AI 视频生成工具做角色设定。根据以下内容，识别故事中的主要角色（2-5 个），为每个角色写一段**英文**视觉描述，作为所有画面的角色一致性锚点。
+
+【作品信息】
+标题：${title || '(未填)'}
+主题：${theme || '(未填)'}
+整体视觉风格：${styleCN || '(未指定)'}
+${source ? '课文原文：\n' + source : ''}
+
+要求：
+- 每个角色只抽取**永久性物理特征**（不变的东西）：年龄段、发型发色、服装风格与颜色、永久配件、标志性物品
+- **不要**写动作、表情、情绪、场景（这些会在分镜里写）
+- 每段英文 20-40 字，逗号分隔关键词，可直接注入图像 Prompt
+- 第一个角色通常是主角
+
+只输出 JSON 数组：[{"name":"中文名","desc":"english visual anchor"}, ...]`;
+    const data = await callGemini('gemini-2.5-flash', {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.7, responseMimeType: 'application/json' }
+    });
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const arr = JSON.parse(text.match(/\[[\s\S]*\]/)?.[0] || text);
+    if (!Array.isArray(arr) || !arr.length) { status.textContent = '❌ AI 没给出有效角色'; return; }
+    characters = arr.map(c => ({
+      id: ++cid,
+      name: (c.name || '').trim() || '角色',
+      desc: (c.desc || '').trim()
+    }));
+    // 现有分镜同步加入所有新角色
+    scenes.forEach(s => s.charIds = characters.map(c => c.id));
+    renderChars(); renderScenes(); save();
+    status.innerHTML = `✅ AI 已生成 <strong>${characters.length}</strong> 个角色`;
+  } catch (err) {
+    status.textContent = '❌ ' + (err.message || err);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════
+//  AI 生成分镜 · 依内容 + 角色 + 风格产出 N 幕完整分镜
+// ═════════════════════════════════════════════════════════════
+async function aiGenerateScenes() {
+  if (!getApiKey()) { showToast('请先在顶部填入 API Key'); return; }
+  if (scenes.length > 0 && !confirm(`将替换当前 ${scenes.length} 幕分镜，确认？`)) return;
+  const n = Math.max(2, Math.min(12, parseInt(document.getElementById('g-num-scenes').value) || 5));
+  const status = document.getElementById('ai-scene-status');
+  const title = document.getElementById('g-title').value.trim();
+  const theme = document.getElementById('g-theme').value.trim();
+  const source = document.getElementById('g-source-text').value.trim().slice(0, 2000);
+  const styleCN = (STYLES.find(s => s[1] === selectedStyle)?.[0]) || '';
+  const charList = characters.map(c => `${c.name}: ${c.desc}`).join('\n');
+
+  if (!title && !theme && !source) { showToast('请先填写标题或贴课文'); return; }
+
+  status.textContent = '⏳ AI 编剧中，生成 ' + n + ' 幕分镜...';
+  try {
+    const prompt = `你是影视分镜师。请为下面的故事编写 ${n} 幕分镜脚本，注重起承转合与画面节奏。
+
+【作品信息】
+标题：${title || '(未填)'}
+主题：${theme || '(未填)'}
+整体视觉风格：${styleCN || '(未指定)'}
+${charList ? '角色清单：\n' + charList : '(尚未设定角色)'}
+${source ? '\n课文原文：\n' + source : ''}
+
+每一幕请输出：
+- story: 这幕中文剧情（一句话，15-30 字）
+- startDesc: 开始画面的英文描述（画面内容，20-40 字）
+- endDesc: 结束画面的英文描述（画面内容，20-40 字，与 start 要有变化或推进）
+- startShot: 镜头类型（取值范围：establishing shot / wide shot / medium shot / close-up / extreme close-up / over-the-shoulder shot / low angle shot / high angle shot / dutch angle / two-shot）
+- endShot: 同上范围
+- camMove: 运镜（取值范围：static fixed camera / slow push in / slow pull back / pan left / pan right / tilt up / tilt down / tracking shot / orbit / crane up / handheld / dolly in）
+- vidContent: 这一幕影片主要内容（中文，10-20 字）
+- vidMotion: 人物/主体动态动作（中文，10-20 字）
+- vidEnv: 环境动态（天气、光线变化、背景元素等，中文，10-20 字）
+- vidTrans: 运镜过渡（中文，10-20 字）
+- vidMood: 氛围音效（中文，10-20 字）
+
+只输出 JSON 数组：[{"story":"...","startDesc":"...","endDesc":"...","startShot":"...","endShot":"...","camMove":"...","vidContent":"...","vidMotion":"...","vidEnv":"...","vidTrans":"...","vidMood":"..."}, ...] 共 ${n} 个元素。`;
+    const data = await callGemini('gemini-2.5-flash', {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.8, responseMimeType: 'application/json' }
+    });
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const arr = JSON.parse(text.match(/\[[\s\S]*\]/)?.[0] || text);
+    if (!Array.isArray(arr) || !arr.length) { status.textContent = '❌ AI 没给出有效分镜'; return; }
+
+    scenes = arr.map(s => ({
+      id: ++sid,
+      story: (s.story || '').trim(),
+      charIds: characters.map(c => c.id),
+      startShot: (s.startShot || 'medium shot').trim(),
+      startDesc: (s.startDesc || '').trim(),
+      endShot:   (s.endShot   || 'medium shot').trim(),
+      endDesc:   (s.endDesc   || '').trim(),
+      camMove:   (s.camMove   || 'static fixed camera').trim(),
+      startPrompt: '', endPrompt: '',
+      vidContent: (s.vidContent || '').trim(),
+      vidMotion:  (s.vidMotion  || '').trim(),
+      vidEnv:     (s.vidEnv     || '').trim(),
+      vidTrans:   (s.vidTrans   || '').trim(),
+      vidMood:    (s.vidMood    || '').trim(),
+    }));
+
+    // 自动构建 Prompt
+    scenes.forEach(s => {
+      s.startPrompt = buildScenePrompt(s, 'start');
+      s.endPrompt   = buildScenePrompt(s, 'end');
+    });
+
+    // 同步生成旁白
+    try { generateNarration(); } catch(e) {}
+
+    renderScenes(); renderExportTable(); save();
+    status.innerHTML = `✅ AI 已生成 <strong>${scenes.length}</strong> 幕完整分镜（含首尾帧 Prompt + 五维参数）`;
   } catch (err) {
     status.textContent = '❌ ' + (err.message || err);
   }
