@@ -558,12 +558,61 @@
           <input type="radio" name="nar-len" value="rich" onchange="setNarrationLen('rich')"><span>丰富</span>
         </label>
       </div>
-      <div class="hint">生成 → 复制 → 贴到 Google AI Studio TTS → 下载 mp3 → 回到下方上传转字幕</div>
+      <div class="hint">① 生成旁白 → ② 选声线一键转语音 → ③ 试听满意 → ④ 转字幕 → ⑤ 按幕切割打包</div>
       <textarea id="narration-out" rows="6" style="margin-top:8px" placeholder="旁白将自动产出，可手动编辑"></textarea>
 
-      <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--cyan)">
+      <!-- 🎤 Gemini TTS 直接生成语音 -->
+      <div style="margin-top:14px;padding:12px;background:var(--phase-inner-2);border-radius:8px;border:1px dashed var(--phase-accent-solid)">
+        <div class="extra-head" style="margin-bottom:8px">
+          <span class="extra-title"><span class="emoji">🎤</span>Gemini TTS · 一键转语音（gemini-2.5-flash-preview-tts）</span>
+        </div>
+        <div class="grid-2" style="gap:10px">
+          <div>
+            <label>🔑 Gemini API Key（仅存本地浏览器）</label>
+            <input type="password" id="gemini-api-key" placeholder="AIzaSy..." oninput="localStorage.setItem('gemini_key', this.value)">
+            <div class="hint" style="margin-top:4px">免费申请：<a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--phase-accent-solid)">aistudio.google.com/apikey</a></div>
+          </div>
+          <div>
+            <label>🎭 声线（30+ 种，精选常用）</label>
+            <select id="gemini-voice">
+              <optgroup label="── 女声 ──">
+                <option value="Kore">Kore · 坚定自信（女）</option>
+                <option value="Aoede" selected>Aoede · 温暖轻快（女，推荐说故事）</option>
+                <option value="Leda">Leda · 年轻活泼（女）</option>
+                <option value="Callirrhoe">Callirrhoe · 随和亲切（女）</option>
+                <option value="Zephyr">Zephyr · 明亮清晰（女）</option>
+                <option value="Autonoe">Autonoe · 明亮（女）</option>
+                <option value="Despina">Despina · 流畅（女）</option>
+                <option value="Erinome">Erinome · 清晰（女）</option>
+                <option value="Laomedeia">Laomedeia · 活泼（女）</option>
+              </optgroup>
+              <optgroup label="── 男声 ──">
+                <option value="Puck">Puck · 活泼俏皮（男）</option>
+                <option value="Charon">Charon · 沉稳讲述感（男，推荐说故事）</option>
+                <option value="Fenrir">Fenrir · 有张力（男）</option>
+                <option value="Orus">Orus · 坚实（男）</option>
+                <option value="Iapetus">Iapetus · 清晰（男）</option>
+                <option value="Algieba">Algieba · 柔和（男）</option>
+                <option value="Umbriel">Umbriel · 随和（男）</option>
+                <option value="Enceladus">Enceladus · 气息感（男）</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+        <label style="margin-top:10px">🎨 语气描述（可选，用自然语言控制风格）</label>
+        <input type="text" id="gemini-style" placeholder="例：温柔缓慢地讲述 / 像说睡前故事 / 欢快活泼地 / 庄严肃穆地" style="width:100%">
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn btn-primary btn-sm" onclick="geminiTTSGenerate()">🎤 生成语音</button>
+          <button class="btn btn-green btn-sm" id="tts-to-srt-btn" style="display:none" onclick="ttsAudioToSRT()">📝 将这段语音转字幕</button>
+          <button class="btn btn-cyan btn-sm" id="tts-download-btn" style="display:none" onclick="downloadTTSAudio()">⬇️ 下载 WAV</button>
+        </div>
+        <div id="tts-status" style="margin-top:8px;font-size:0.82rem;color:var(--muted)"></div>
+        <audio id="tts-player" controls style="display:none;width:100%;margin-top:10px"></audio>
+      </div>
+
+      <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--phase-accent-solid)">
         <div class="extra-head">
-          <span class="extra-title"><span class="emoji">🎧</span>语音转 SRT 字幕</span>
+          <span class="extra-title"><span class="emoji">🎧</span>语音转 SRT 字幕（上传既有录音）</span>
           <div class="btn-row">
             <button class="btn btn-green btn-sm" id="srt-dl-btn" style="display:none" onclick="downloadGeneratedSRT()">⬇️ 下载 .srt</button>
             <button class="btn btn-outline btn-sm" id="srt-copy-btn" style="display:none" onclick="copyText(lastSRT)">📋 复制</button>
@@ -1688,6 +1737,122 @@ function generateMusic() {
   save();
 }
 // ═════════════════════════════════════════════════════════════
+//  Gemini TTS · 直接把旁白变语音（gemini-2.5-flash-preview-tts）
+// ═════════════════════════════════════════════════════════════
+let lastTTSBlob = null;  // 生成出来的 WAV Blob
+
+// 24kHz 16-bit PCM bytes -> WAV Blob
+function pcm16ToWav(pcmBytes, sampleRate) {
+  const dataLen = pcmBytes.length;
+  const buf = new ArrayBuffer(44 + dataLen);
+  const view = new DataView(buf);
+  const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o+i, s.charCodeAt(i)); };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataLen, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);             // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, dataLen, true);
+  new Uint8Array(buf, 44).set(pcmBytes);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+// base64 → Uint8Array
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+
+async function geminiTTSGenerate() {
+  const key = document.getElementById('gemini-api-key').value.trim();
+  if (!key) { showToast('请先填入 Gemini API Key'); return; }
+  const text = document.getElementById('narration-out').value.trim();
+  if (!text) { showToast('请先生成旁白'); return; }
+  const voice = document.getElementById('gemini-voice').value;
+  const style = document.getElementById('gemini-style').value.trim();
+  const status = document.getElementById('tts-status');
+  const player = document.getElementById('tts-player');
+
+  const prompt = style ? `${style}：\n${text}` : text;
+
+  status.innerHTML = `⏳ 生成语音中（${voice}）...`;
+  document.getElementById('tts-to-srt-btn').style.display = 'none';
+  document.getElementById('tts-download-btn').style.display = 'none';
+  player.style.display = 'none';
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(key)}`;
+    const body = {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: voice }
+          }
+        }
+      }
+    };
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      const msg = data.error?.message || resp.statusText;
+      status.innerHTML = `❌ API 错误：${msg}`;
+      return;
+    }
+    const part = data?.candidates?.[0]?.content?.parts?.[0];
+    const audioB64 = part?.inlineData?.data;
+    if (!audioB64) { status.innerHTML = '❌ 未收到音频数据'; return; }
+
+    const pcm = b64ToBytes(audioB64);
+    lastTTSBlob = pcm16ToWav(pcm, 24000);
+    const urlObj = URL.createObjectURL(lastTTSBlob);
+    player.src = urlObj;
+    player.style.display = 'block';
+    document.getElementById('tts-to-srt-btn').style.display = 'inline-flex';
+    document.getElementById('tts-download-btn').style.display = 'inline-flex';
+
+    const sec = (pcm.length / 2 / 24000).toFixed(1);
+    status.innerHTML = `✅ 语音已生成（${voice}，${sec} 秒）— 可试听，满意后送去转字幕`;
+  } catch (err) {
+    console.error(err);
+    status.innerHTML = `❌ 错误: ${err.message || err}`;
+  }
+}
+
+function downloadTTSAudio() {
+  if (!lastTTSBlob) return;
+  const title = (document.getElementById('g-title')?.value || 'narration').replace(/[^\w\u4e00-\u9fff]/g, '_');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(lastTTSBlob);
+  a.download = `${title}_旁白.wav`; a.click();
+}
+
+// 把 TTS 生成的音频直接喂给 Whisper 转字幕（复用现有管道）
+async function ttsAudioToSRT() {
+  if (!lastTTSBlob) { showToast('请先生成语音'); return; }
+  // 构造 fake event 给 handleAudioUpload
+  const file = new File([lastTTSBlob], 'tts.wav', { type: 'audio/wav' });
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  const fakeEvent = { target: { files: [file] } };
+  await handleAudioUpload(fakeEvent);
+}
+
+// ═════════════════════════════════════════════════════════════
 //  语音转 SRT（Whisper 本地模型，via transformers.js）
 // ═════════════════════════════════════════════════════════════
 let whisperPipe = null;
@@ -2055,6 +2220,12 @@ function save() {
 }
 function load() {
   try {
+    // 恢复 Gemini API key
+    const savedKey = localStorage.getItem('gemini_key');
+    if (savedKey) {
+      const el = document.getElementById('gemini-api-key');
+      if (el) el.value = savedKey;
+    }
     const raw = localStorage.getItem(KEY);
     if (!raw) { renderStyleTabs(); renderStyleGrid(); render(); toggleSourceMode(); return; }
     const d = JSON.parse(raw);
