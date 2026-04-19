@@ -2739,7 +2739,9 @@ async function splitAudioByScenes() {
   const sr = lastSampleRate;
   const totalSec = lastAudio.length / sr;
 
-  // 以面板当前的 sceneIdx 为准，重建时间切点（切点 = 每段第一条 chunk 的 start）
+  // 以面板当前的 sceneIdx 为准，重建时间切点
+  // 切点 = (前一幕最后一条 chunk 的结束时间 + 下一幕第一条 chunk 的开始时间) / 2
+  // 这样每幕 WAV 完整包含自己的所有字幕 chunk 音频，不会把字切到下一幕
   const chunks = lastChunks || [];
   const hasSceneIdx = chunks.some(c => typeof c.sceneIdx === 'number');
   let points;
@@ -2747,8 +2749,13 @@ async function splitAudioByScenes() {
     const sceneKeys = [...new Set(chunks.map(c => c.sceneIdx))].sort((a,b)=>a-b);
     points = [0];
     for (let s = 1; s < sceneKeys.length; s++) {
-      const first = chunks.find(c => c.sceneIdx === sceneKeys[s]);
-      points.push((first?.timestamp?.[0]) || 0);
+      const prevScene = chunks.filter(c => c.sceneIdx === sceneKeys[s-1]);
+      const currScene = chunks.filter(c => c.sceneIdx === sceneKeys[s]);
+      const prevEnd = prevScene.length ? (prevScene[prevScene.length-1].timestamp?.[1] || 0) : 0;
+      const currStart = currScene.length ? (currScene[0].timestamp?.[0] || prevEnd) : prevEnd;
+      // 取中间点，有足够静音缓冲；若重叠则用较大值兜底
+      const mid = (prevEnd + Math.max(prevEnd, currStart)) / 2;
+      points.push(+mid.toFixed(3));
     }
     points.push(totalSec);
   } else {
@@ -2783,10 +2790,11 @@ async function splitAudioByScenes() {
         });
     const segChunks = sceneChunks.map((c, k) => {
       const [cs, ce] = c.timestamp || [0,0];
+      const segDur = endT - startT;
       return {
         idx: k + 1,
-        start: Math.max(0, cs - startT),
-        end: Math.max(0, (ce || cs + 2) - startT),
+        start: Math.max(0, Math.min(segDur, cs - startT)),
+        end:   Math.max(0, Math.min(segDur, (ce || cs + 2) - startT)),
         text: (c.text || '').trim()
       };
     });
