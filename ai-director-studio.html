@@ -2511,6 +2511,7 @@ async function handleAudioUpload(e) {
     lastAudio = audio;               // Float32 16kHz mono
     lastSampleRate = 16000;
     lastChunks = chunks;
+    __lastAlignedNarration = usedCorrection ? narrRaw : '';
     renderSrtPreviewGrouped(chunks, n);
     document.getElementById('srt-dl-btn').style.display = 'inline-flex';
     document.getElementById('srt-copy-btn').style.display = 'inline-flex';
@@ -2767,6 +2768,58 @@ function secToSRT(s) {
   const ms = Math.floor((s % 1) * 1000).toString().padStart(3, '0');
   return `${h}:${m}:${sec},${ms}`;
 }
+let __lastAlignedNarration = '';
+
+// 如果旁白内容跟上次对齐时不一样，就重新套用
+function maybeRealignFromNarration() {
+  const narr = document.getElementById('narration-out')?.value.trim() || '';
+  if (!narr || narr === __lastAlignedNarration) return false;
+  const ok = realignTextFromNarration();
+  if (ok) {
+    __lastAlignedNarration = narr;
+    renderSrtPreviewGrouped(lastChunks);
+    const st = document.getElementById('srt-status');
+    if (st) st.innerHTML = `🔄 旁白有变动，字幕已按新文本重新分配（下载 / 打包用这份）`;
+  }
+  return ok;
+}
+
+// 用旁白文本重刷 lastChunks 的文字（保留 sceneIdx 和 timestamp）
+// 每幕的 chunks 平均分配对应那一幕的旁白，按字数比例
+function realignTextFromNarration() {
+  if (!lastChunks || !lastChunks.length) return false;
+  const useText = document.getElementById('srt-use-text')?.checked;
+  if (!useText) return false;
+  const narrRaw = document.getElementById('narration-out')?.value.trim() || '';
+  if (!narrRaw) return false;
+  const sceneKeys = [...new Set(lastChunks.map(c => c.sceneIdx))].sort((a,b)=>a-b);
+  const sceneTexts = parseNarrationScenes(narrRaw, sceneKeys.length);
+  if (sceneTexts.length < 1) return false;
+
+  sceneKeys.forEach((k, idx) => {
+    const sceneChunks = lastChunks.filter(c => c.sceneIdx === k);
+    if (!sceneChunks.length) return;
+    const text = (sceneTexts[idx] || '').replace(/\s+/g, '');
+    if (!text) return;
+    const totalDur = sceneChunks.reduce((sum, c) => {
+      const [a, b] = c.timestamp || [0, 0];
+      return sum + Math.max(0.1, (b || a + 1) - a);
+    }, 0);
+    let pos = 0;
+    sceneChunks.forEach((c, i) => {
+      const [a, b] = c.timestamp || [0, 0];
+      const dur = Math.max(0.1, (b || a + 1) - a);
+      const take = (i === sceneChunks.length - 1)
+        ? text.length - pos
+        : Math.round(text.length * dur / totalDur);
+      c.text = text.slice(pos, pos + take);
+      pos += take;
+    });
+  });
+  lastSRT = chunksToSRT(lastChunks);
+  return true;
+}
+
 // 同步面板上所有 textarea 的最新值回 lastChunks
 function syncPanelEdits() {
   document.querySelectorAll('#srt-preview textarea').forEach(ta => {
@@ -2778,6 +2831,8 @@ function syncPanelEdits() {
 
 function downloadGeneratedSRT() {
   syncPanelEdits();
+  // 若旁白改过 + 勾选校正，下载前先自动重套（不覆盖手动面板编辑，只补空缺）
+  maybeRealignFromNarration();
   // 以面板当前编辑的 chunks 为准，每次下载都用最新内容
   const srt = (lastChunks && lastChunks.length) ? chunksToSRT(lastChunks) : lastSRT;
   if (!srt) { showToast('请先上传音频转录'); return; }
@@ -2851,6 +2906,7 @@ async function splitAudioByScenes() {
   if (!lastAudio) { showToast('请先上传音频'); return; }
   if (typeof JSZip === 'undefined') { showToast('JSZip 未加载，请检查网络'); return; }
   syncPanelEdits();  // 打包前先把面板编辑同步回来
+  maybeRealignFromNarration();  // 若旁白改过，自动重套
   const sr = lastSampleRate;
   const totalSec = lastAudio.length / sr;
 
@@ -3105,6 +3161,17 @@ function render() { renderChars(); renderScenes(); renderExportTable(); }
 document.addEventListener('input', e => {
   if (e.target.id && e.target.id.startsWith('g-') || e.target.id === 'back-title' || e.target.id === 'narration-out') save();
 });
+
+// 旁白变动后，若字幕面板已生成 + 勾了校正，自动同步
+const __narrEl = document.getElementById('narration-out');
+if (__narrEl) {
+  __narrEl.addEventListener('input', () => {
+    clearTimeout(window.__narrRealignTimer);
+    window.__narrRealignTimer = setTimeout(() => {
+      if (lastChunks && lastChunks.length) maybeRealignFromNarration();
+    }, 800);
+  });
+}
 
 load();
 </script>
