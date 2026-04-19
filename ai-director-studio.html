@@ -696,9 +696,15 @@
           </div>
         </div>
         <div class="hint">上传 mp3/wav → 浏览器本地 Whisper 转中文 SRT（首次下载约 150MB 模型）</div>
-        <input type="file" id="audio-upload" accept="audio/*" onchange="handleAudioUpload(event)" style="margin-top:10px">
+        <div class="row-flex" style="margin-top:10px;gap:14px;flex-wrap:wrap">
+          <input type="file" id="audio-upload" accept="audio/*" onchange="handleAudioUpload(event)">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:0.82rem;color:var(--fg);cursor:pointer">
+            <input type="checkbox" id="srt-use-text" checked style="width:16px;height:16px">
+            📖 用旁白文本校正（字不会跑）
+          </label>
+        </div>
         <div id="srt-status" style="margin-top:8px;font-size:0.82rem;color:var(--muted)"></div>
-        <div class="prompt-out" id="srt-preview" style="margin-top:8px;max-height:260px;overflow-y:auto"></div>
+        <div class="prompt-out" id="srt-preview" style="margin-top:8px;max-height:320px;overflow-y:auto"></div>
       </div>
     </div>
 
@@ -2387,16 +2393,44 @@ async function handleAudioUpload(e) {
       stride_length_s: 5,
     });
 
-    const srt = chunksToSRT(result.chunks || []);
-    lastSRT = srt;
+    let chunks = result.chunks || [];
+    const totalSec = audio.length / 16000;
+    const n = Math.max(2, Math.min(12,
+      parseInt(document.getElementById('g-num-scenes')?.value) ||
+      (typeof scenes !== 'undefined' && scenes.length) || 5
+    ));
+    const useText = document.getElementById('srt-use-text')?.checked;
+    const narrRaw = document.getElementById('narration-out')?.value.trim() || '';
+    let usedCorrection = false;
+    if (useText && narrRaw) {
+      const sceneTexts = parseNarrationScenes(narrRaw, n);
+      if (sceneTexts.length >= 2) {
+        chunks = alignChunksToText(chunks, sceneTexts, totalSec);
+        usedCorrection = true;
+      }
+    }
+    // 给每个 chunk 打上幕索引，方便分组显示 & 切割
+    const points = computeSplitPoints(totalSec, n, chunks);
+    chunks = chunks.map(c => {
+      const mid = ((c.timestamp?.[0] || 0) + (c.timestamp?.[1] || 0)) / 2;
+      let sceneIdx = 0;
+      for (let i = 0; i < points.length - 1; i++) {
+        if (mid >= points[i] && mid < points[i+1]) { sceneIdx = i; break; }
+        if (i === points.length - 2 && mid >= points[i+1]) sceneIdx = i;
+      }
+      return { ...c, sceneIdx };
+    });
+
+    lastSRT = chunksToSRT(chunks);
     lastAudio = audio;               // Float32 16kHz mono
     lastSampleRate = 16000;
-    lastChunks = result.chunks || [];
-    preview.textContent = srt || result.text || '（未识别出内容）';
+    lastChunks = chunks;
+    renderSrtPreviewGrouped(chunks, n);
     document.getElementById('srt-dl-btn').style.display = 'inline-flex';
     document.getElementById('srt-copy-btn').style.display = 'inline-flex';
     document.getElementById('split-audio-btn').style.display = 'inline-flex';
-    status.innerHTML = `✅ 转录完成，共 ${(result.chunks || []).length} 条字幕（可按幕切割打包）`;
+    const tag = usedCorrection ? '✅ 已用旁白文本校正' : '✅ 转录完成';
+    status.innerHTML = `${tag}，共 ${chunks.length} 条字幕，按 ${n} 幕分组（可按幕切割打包）`;
   } catch (err) {
     console.error(err);
     status.innerHTML = `❌ 错误: ${err.message || err}`;
@@ -2409,6 +2443,90 @@ function chunksToSRT(chunks) {
     const [start, end] = c.timestamp || [0, 0];
     return `${i+1}\n${secToSRT(start)} --> ${secToSRT(end || start + 2)}\n${(c.text || '').trim()}\n`;
   }).join('\n');
+}
+
+// 把旁白文本按「第N幕：」切成 N 段，去掉前缀
+function parseNarrationScenes(text, n) {
+  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+  const buckets = [];
+  for (const ln of lines) {
+    const m = ln.match(/^第[一二三四五六七八九十百千0-9]+[幕页][：:]\s*(.*)$/);
+    if (m) {
+      buckets.push(m[1]);
+    } else if (buckets.length) {
+      buckets[buckets.length - 1] += ln;
+    } else {
+      // 开头有引言/主题句 — 先暂存，若后面有幕标记则并入第一幕
+      buckets.push(ln);
+    }
+  }
+  // 若数量不等于 n，按原文均分字符
+  if (buckets.length !== n) {
+    const plain = text.replace(/第[一二三四五六七八九十百千0-9]+[幕页][：:]/g, '').replace(/\s+/g, '');
+    const per = Math.ceil(plain.length / n);
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(plain.slice(i*per, (i+1)*per));
+    return out.filter(Boolean);
+  }
+  return buckets;
+}
+
+// 用旁白原文替换 Whisper chunk 文字：按 chunk 时长比例分配字符
+function alignChunksToText(chunks, sceneTexts, totalSec) {
+  if (!chunks.length || !sceneTexts.length) return chunks;
+  // 先算每个 scene 的时间范围（按 Whisper chunks 切）
+  const points = computeSplitPoints(totalSec, sceneTexts.length, chunks);
+  const out = chunks.map(c => ({ ...c }));
+  for (let s = 0; s < sceneTexts.length; s++) {
+    const t0 = points[s], t1 = points[s+1];
+    const sceneChunks = out.filter(c => {
+      const mid = ((c.timestamp?.[0] || 0) + (c.timestamp?.[1] || 0)) / 2;
+      return mid >= t0 && mid < t1;
+    });
+    if (!sceneChunks.length) continue;
+    const text = (sceneTexts[s] || '').replace(/\s+/g, '');
+    if (!text) continue;
+    const totalDur = sceneChunks.reduce((sum, c) => {
+      const [a, b] = c.timestamp || [0, 0];
+      return sum + Math.max(0.1, (b || a + 1) - a);
+    }, 0);
+    let pos = 0;
+    sceneChunks.forEach((c, i) => {
+      const [a, b] = c.timestamp || [0, 0];
+      const dur = Math.max(0.1, (b || a + 1) - a);
+      let take;
+      if (i === sceneChunks.length - 1) {
+        take = text.length - pos;
+      } else {
+        take = Math.round(text.length * dur / totalDur);
+      }
+      c.text = text.slice(pos, pos + take);
+      pos += take;
+    });
+  }
+  return out;
+}
+
+// 按幕分组渲染字幕预览（1 / 2 / 3 ...）
+function renderSrtPreviewGrouped(chunks, n) {
+  const preview = document.getElementById('srt-preview');
+  if (!preview) return;
+  if (!chunks.length) { preview.textContent = '（未识别出内容）'; return; }
+  const groups = {};
+  chunks.forEach((c, i) => {
+    const idx = c.sceneIdx ?? 0;
+    (groups[idx] = groups[idx] || []).push({ c, srtIdx: i + 1 });
+  });
+  const sceneKeys = Object.keys(groups).map(Number).sort((a,b)=>a-b);
+  const html = sceneKeys.map(k => {
+    const header = `<div style="margin:10px 0 4px;padding:4px 10px;background:var(--phase-accent-solid);color:#1a1d24;border-radius:6px;font-weight:600;font-size:0.82rem;display:inline-block">幕 ${k+1}</div>`;
+    const rows = groups[k].map(({ c, srtIdx }) => {
+      const [a, b] = c.timestamp || [0, 0];
+      return `<div style="padding:3px 6px;font-size:0.8rem;line-height:1.5"><span style="color:var(--muted);font-family:monospace;font-size:0.72rem">#${srtIdx} ${secToSRT(a)} → ${secToSRT(b || a+1)}</span><br>${(c.text || '').trim()}</div>`;
+    }).join('');
+    return header + rows;
+  }).join('');
+  preview.innerHTML = html;
 }
 function secToSRT(s) {
   s = s || 0;
