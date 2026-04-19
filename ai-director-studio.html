@@ -2483,24 +2483,29 @@ async function handleAudioUpload(e) {
     const useText = document.getElementById('srt-use-text')?.checked;
     const narrRaw = document.getElementById('narration-out')?.value.trim() || '';
     let usedCorrection = false;
+    let sceneCount = n;
     if (useText && narrRaw) {
       const sceneTexts = parseNarrationScenes(narrRaw, n);
       if (sceneTexts.length >= 2) {
+        // 切点数以旁白里的幕数为准（第1幕/第2幕.../第N幕）
+        sceneCount = sceneTexts.length;
         chunks = alignChunksToText(chunks, sceneTexts, totalSec);
         usedCorrection = true;
       }
     }
-    // 给每个 chunk 打上幕索引，方便分组显示 & 切割
-    const points = computeSplitPoints(totalSec, n, chunks);
-    chunks = chunks.map(c => {
-      const mid = ((c.timestamp?.[0] || 0) + (c.timestamp?.[1] || 0)) / 2;
-      let sceneIdx = 0;
-      for (let i = 0; i < points.length - 1; i++) {
-        if (mid >= points[i] && mid < points[i+1]) { sceneIdx = i; break; }
-        if (i === points.length - 2 && mid >= points[i+1]) sceneIdx = i;
-      }
-      return { ...c, sceneIdx };
-    });
+    // 若未用旁白校正，再按均分方式给 chunk 打上幕索引
+    if (!usedCorrection) {
+      const points = computeSplitPoints(totalSec, n, chunks);
+      chunks = chunks.map(c => {
+        const mid = ((c.timestamp?.[0] || 0) + (c.timestamp?.[1] || 0)) / 2;
+        let sceneIdx = 0;
+        for (let i = 0; i < points.length - 1; i++) {
+          if (mid >= points[i] && mid < points[i+1]) { sceneIdx = i; break; }
+          if (i === points.length - 2 && mid >= points[i+1]) sceneIdx = i;
+        }
+        return { ...c, sceneIdx };
+      });
+    }
 
     lastSRT = chunksToSRT(chunks);
     lastAudio = audio;               // Float32 16kHz mono
@@ -2510,7 +2515,7 @@ async function handleAudioUpload(e) {
     document.getElementById('srt-dl-btn').style.display = 'inline-flex';
     document.getElementById('srt-copy-btn').style.display = 'inline-flex';
     document.getElementById('split-audio-btn').style.display = 'inline-flex';
-    const tag = usedCorrection ? '✅ 已用旁白文本校正' : '✅ 转录完成';
+    const tag = usedCorrection ? `✅ 已用旁白文本校正（切点同步到 ${sceneCount} 幕）` : '✅ 转录完成';
     status.innerHTML = `${tag}，共 ${chunks.length} 条字幕（可直接编辑文字、调整切点，再下载 SRT 或按段切割打包）`;
   } catch (err) {
     console.error(err);
@@ -2564,6 +2569,8 @@ function alignChunksToText(chunks, sceneTexts, totalSec) {
       const mid = ((c.timestamp?.[0] || 0) + (c.timestamp?.[1] || 0)) / 2;
       return mid >= t0 && mid < t1;
     });
+    // 直接打上幕索引 —— 底下面板切点会和旁白的幕数完全一致
+    sceneChunks.forEach(c => { c.sceneIdx = s; });
     if (!sceneChunks.length) continue;
     const text = (sceneTexts[s] || '').replace(/\s+/g, '');
     if (!text) continue;
@@ -2584,6 +2591,12 @@ function alignChunksToText(chunks, sceneTexts, totalSec) {
       c.text = text.slice(pos, pos + take);
       pos += take;
     });
+  }
+  // 兜底：没被分到的 chunk 用最近的 sceneIdx
+  for (let i = 0; i < out.length; i++) {
+    if (typeof out[i].sceneIdx !== 'number') {
+      out[i].sceneIdx = i > 0 ? out[i-1].sceneIdx : 0;
+    }
   }
   return out;
 }
