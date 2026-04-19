@@ -1572,7 +1572,13 @@ function toggleSourceMode() {
   document.getElementById('pill-auto')?.classList.toggle('active', mode === 'auto');
   document.getElementById('pill-text')?.classList.toggle('active', mode === 'text');
   document.getElementById('pill-nbm')?.classList.toggle('active', mode === 'notebooklm');
-  if (mode === 'notebooklm') generateNbmPrompt();
+  if (mode === 'notebooklm') {
+    generateNbmPrompt();
+    // 自动展开语音面板，并生成旁白（NBM 模式下主要产出就是旁白 + 语音）
+    const voice = document.getElementById('extra-voice');
+    if (voice && voice.style.display === 'none') voice.style.display = 'block';
+    try { if (typeof generateNarration === 'function') generateNarration(); } catch(e){}
+  }
   save();
 }
 
