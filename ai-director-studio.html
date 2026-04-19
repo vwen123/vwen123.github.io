@@ -2953,17 +2953,9 @@ async function splitAudioByScenes() {
     const fname = `${String(i+1).padStart(2,'0')}_${title}.wav`;
     zip.file(fname, wav);
 
-    // 这段的字幕（相对时间重置为 0）—— 用当前面板里编辑过的文本
-    // 关键：用 sceneKeys[i] 去匹配真实 sceneIdx（删过切点后 sceneIdx 可能跳号）
-    const sceneChunks = hasSceneIdx
-      ? chunks.filter(c => c.sceneIdx === sceneKeys[i])
-      : chunks.filter(c => {
-          const [cs] = c.timestamp || [0, 0];
-          return cs >= startT - 0.1 && cs < endT;
-        });
   }
 
-  // 完整 SRT（以当前面板编辑为准）
+  // 完整 SRT（整部作品贯穿时间轴，方便整支剪辑）
   const fullSRT = chunksToSRT(chunks);
   if (fullSRT) zip.file(`${title}_完整字幕.srt`, fullSRT);
   const manifest = points.slice(0, -1).map((p, i) => {
