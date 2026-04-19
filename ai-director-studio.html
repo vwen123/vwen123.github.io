@@ -604,7 +604,7 @@
       <!-- 🎤 Gemini TTS 直接生成语音 -->
       <div style="margin-top:14px;padding:12px;background:var(--phase-inner-2);border-radius:8px;border:1px dashed var(--phase-accent-solid)">
         <div class="extra-head" style="margin-bottom:8px">
-          <span class="extra-title"><span class="emoji">🎤</span>Gemini TTS · 一键转语音（gemini-2.5-flash-preview-tts）</span>
+          <span class="extra-title"><span class="emoji">🎤</span>一键转语音</span>
           <div class="ai-only-hide" style="font-size:0.72rem;color:#dc2626">⚠️ 请先在顶部填入 API Key</div>
         </div>
 
@@ -664,12 +664,12 @@
           </div>
         </div>
         <div class="btn-row" style="margin-top:10px">
-          <button class="btn btn-primary btn-sm" onclick="geminiTTSGenerate()">🎤 Gemini 生成（高品质）</button>
-          <button class="btn btn-amber btn-sm" onclick="browserTTSGenerate()">🌐 浏览器语音（免费无限）</button>
+          <button class="btn btn-primary btn-sm" onclick="geminiTTSGenerate()">🎤 一键生成语音</button>
+          <a class="btn btn-amber btn-sm" href="https://aistudio.google.com/generate-speech" target="_blank" style="text-decoration:none">🌐 去 Google AI Studio 试听</a>
           <button class="btn btn-green btn-sm" id="tts-to-srt-btn" style="display:none" onclick="ttsAudioToSRT()">📝 将这段语音转字幕</button>
           <button class="btn btn-cyan btn-sm" id="tts-download-btn" style="display:none" onclick="downloadTTSAudio()">⬇️ 下载 WAV</button>
         </div>
-        <div class="hint" style="margin-top:6px">💡 Gemini 免费版限 10 次/分钟；超限可改用浏览器语音（无需 API，无限次）</div>
+        <div class="hint" style="margin-top:6px">💡 Gemini 免费版限 10 次/分钟；超限可先到 Google AI Studio 生成，再下载 WAV 回来转字幕</div>
         <div id="tts-status" style="margin-top:8px;font-size:0.82rem;color:var(--muted)"></div>
         <audio id="tts-player" controls style="display:none;width:100%;margin-top:10px"></audio>
       </div>
@@ -2511,7 +2511,7 @@ async function handleAudioUpload(e) {
     document.getElementById('srt-copy-btn').style.display = 'inline-flex';
     document.getElementById('split-audio-btn').style.display = 'inline-flex';
     const tag = usedCorrection ? '✅ 已用旁白文本校正' : '✅ 转录完成';
-    status.innerHTML = `${tag}，共 ${chunks.length} 条字幕，按 ${n} 幕分组（可按幕切割打包）`;
+    status.innerHTML = `${tag}，共 ${chunks.length} 条字幕（可直接编辑文字、调整切点，再下载 SRT 或按段切割打包）`;
   } catch (err) {
     console.error(err);
     status.innerHTML = `❌ 错误: ${err.message || err}`;
@@ -2588,26 +2588,59 @@ function alignChunksToText(chunks, sceneTexts, totalSec) {
   return out;
 }
 
-// 按幕分组渲染字幕预览（1 / 2 / 3 ...）
+// 可编辑字幕预览 —— 文字可改 / 切点可调，下载 SRT + 按幕切割均以此为准
 function renderSrtPreviewGrouped(chunks, n) {
   const preview = document.getElementById('srt-preview');
   if (!preview) return;
   if (!chunks.length) { preview.textContent = '（未识别出内容）'; return; }
-  const groups = {};
-  chunks.forEach((c, i) => {
-    const idx = c.sceneIdx ?? 0;
-    (groups[idx] = groups[idx] || []).push({ c, srtIdx: i + 1 });
-  });
-  const sceneKeys = Object.keys(groups).map(Number).sort((a,b)=>a-b);
-  const html = sceneKeys.map(k => {
-    const header = `<div style="margin:10px 0 4px;padding:4px 10px;background:var(--phase-accent-solid);color:#1a1d24;border-radius:6px;font-weight:600;font-size:0.82rem;display:inline-block">幕 ${k+1}</div>`;
-    const rows = groups[k].map(({ c, srtIdx }) => {
-      const [a, b] = c.timestamp || [0, 0];
-      return `<div style="padding:3px 6px;font-size:0.8rem;line-height:1.5"><span style="color:var(--muted);font-family:monospace;font-size:0.72rem">#${srtIdx} ${secToSRT(a)} → ${secToSRT(b || a+1)}</span><br>${(c.text || '').trim()}</div>`;
-    }).join('');
-    return header + rows;
+
+  const html = chunks.map((c, i) => {
+    const [a, b] = c.timestamp || [0, 0];
+    const isCut = i > 0 && c.sceneIdx !== chunks[i-1].sceneIdx;
+    const divider = isCut
+      ? `<div style="margin:10px 0;border-top:2px dashed var(--phase-accent-solid);position:relative"><span style="position:absolute;top:-10px;left:12px;background:var(--phase-inner);padding:0 8px;font-size:0.7rem;color:var(--phase-accent-solid);font-weight:600">✂ 切点</span></div>`
+      : '';
+    const btnLabel = isCut ? '✕ 取消切点' : '✂ 在此切段';
+    return `${divider}
+      <div class="srt-row" data-idx="${i}" style="padding:6px 4px;border-bottom:1px solid var(--phase-border);display:flex;gap:8px;align-items:flex-start">
+        <div style="min-width:140px;font-family:monospace;font-size:0.7rem;color:var(--muted);padding-top:6px">
+          #${i+1}<br>${secToSRT(a)}<br>→ ${secToSRT(b || a+1)}
+        </div>
+        <textarea rows="1" oninput="updateChunkText(${i}, this.value); autoGrow(this)" style="flex:1;font-size:0.82rem;line-height:1.5;border:1px solid var(--phase-border);border-radius:6px;padding:6px 8px;background:var(--phase-inner);color:var(--fg);resize:none">${escapeHtml((c.text || '').trim())}</textarea>
+        <button type="button" onclick="toggleCutPoint(${i})" style="padding:4px 8px;border-radius:6px;border:1px solid var(--phase-accent-solid);background:${isCut?'var(--phase-accent-solid)':'transparent'};color:${isCut?'#1a1d24':'var(--phase-accent-solid)'};font-size:0.7rem;cursor:pointer;white-space:nowrap;flex-shrink:0;margin-top:4px">${btnLabel}</button>
+      </div>`;
   }).join('');
-  preview.innerHTML = html;
+  preview.innerHTML = `<div class="hint" style="margin:0 0 8px;color:var(--muted)">✏️ 文字可直接修改；点「✂ 在此切段」调整切点，下载 SRT 和按幕切割打包都以此为准</div>${html}`;
+  // 初始化 textarea 高度
+  preview.querySelectorAll('textarea').forEach(autoGrow);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = (el.scrollHeight + 2) + 'px';
+}
+function updateChunkText(i, val) {
+  if (!lastChunks[i]) return;
+  lastChunks[i].text = val;
+  lastSRT = chunksToSRT(lastChunks);  // 同步更新 SRT
+}
+// 切点 = 某条 chunk 的 sceneIdx 与上一条不同
+function toggleCutPoint(i) {
+  if (i <= 0 || !lastChunks.length) return;
+  const prev = lastChunks[i-1].sceneIdx;
+  const curr = lastChunks[i].sceneIdx;
+  if (prev !== curr) {
+    // 取消切点：把 i 之后所有 sceneIdx 往前减 1，使其合并回前一幕
+    for (let k = i; k < lastChunks.length; k++) lastChunks[k].sceneIdx -= 1;
+  } else {
+    // 新增切点：把 i 之后所有 sceneIdx 加 1
+    for (let k = i; k < lastChunks.length; k++) lastChunks[k].sceneIdx += 1;
+  }
+  lastSRT = chunksToSRT(lastChunks);
+  renderSrtPreviewGrouped(lastChunks);
 }
 function secToSRT(s) {
   s = s || 0;
@@ -2618,9 +2651,12 @@ function secToSRT(s) {
   return `${h}:${m}:${sec},${ms}`;
 }
 function downloadGeneratedSRT() {
-  if (!lastSRT) { showToast('请先上传音频转录'); return; }
+  // 以面板当前编辑的 chunks 为准，每次下载都用最新内容
+  const srt = (lastChunks && lastChunks.length) ? chunksToSRT(lastChunks) : lastSRT;
+  if (!srt) { showToast('请先上传音频转录'); return; }
+  lastSRT = srt;
   const title = (document.getElementById('g-title').value || 'subtitles').replace(/[^\w\u4e00-\u9fff]/g, '_');
-  const blob = new Blob([lastSRT], { type: 'text/plain;charset=utf-8' });
+  const blob = new Blob([srt], { type: 'text/plain;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `${title}.srt`; a.click();
@@ -2687,32 +2723,45 @@ function computeSplitPoints(totalSec, n, chunks) {
 async function splitAudioByScenes() {
   if (!lastAudio) { showToast('请先上传音频'); return; }
   if (typeof JSZip === 'undefined') { showToast('JSZip 未加载，请检查网络'); return; }
-  const n = Math.max(2, Math.min(12,
-    parseInt(document.getElementById('g-num-scenes')?.value) ||
-    (scenes && scenes.length) || 5
-  ));
   const sr = lastSampleRate;
   const totalSec = lastAudio.length / sr;
-  const points = computeSplitPoints(totalSec, n, lastChunks);
+
+  // 以面板当前的 sceneIdx 为准，重建时间切点（切点 = 每段第一条 chunk 的 start）
+  const chunks = lastChunks || [];
+  const hasSceneIdx = chunks.some(c => typeof c.sceneIdx === 'number');
+  let points;
+  if (hasSceneIdx && chunks.length) {
+    const sceneKeys = [...new Set(chunks.map(c => c.sceneIdx))].sort((a,b)=>a-b);
+    points = [0];
+    for (let s = 1; s < sceneKeys.length; s++) {
+      const first = chunks.find(c => c.sceneIdx === sceneKeys[s]);
+      points.push((first?.timestamp?.[0]) || 0);
+    }
+    points.push(totalSec);
+  } else {
+    const n = Math.max(2, Math.min(12,
+      parseInt(document.getElementById('g-num-scenes')?.value) ||
+      (scenes && scenes.length) || 5
+    ));
+    points = computeSplitPoints(totalSec, n, chunks);
+  }
+
   const status = document.getElementById('srt-status');
   status.innerHTML = `✂️ 切割中，共 ${points.length - 1} 段...`;
 
   const zip = new JSZip();
   const title = (document.getElementById('g-title')?.value || 'narration').replace(/[^\w\u4e00-\u9fff]/g, '_');
 
-  // 同时为每段生成对应字幕段（优先用 chunk.sceneIdx，保证与预览分组完全一致）
-  const chunks = lastChunks || [];
-  const hasSceneIdx = chunks.some(c => typeof c.sceneIdx === 'number');
   for (let i = 0; i < points.length - 1; i++) {
     const startT = points[i], endT = points[i+1];
     const a = Math.floor(startT * sr);
     const b = Math.min(lastAudio.length, Math.floor(endT * sr));
     const slice = lastAudio.subarray(a, b);
     const wav = float32ToWav(slice, sr);
-    const fname = `第${String(i+1).padStart(2,'0')}幕_${title}.wav`;
+    const fname = `${String(i+1).padStart(2,'0')}_${title}.wav`;
     zip.file(fname, wav);
 
-    // 这段的字幕（相对时间重置为 0）
+    // 这段的字幕（相对时间重置为 0）—— 用当前面板里编辑过的文本
     const sceneChunks = hasSceneIdx
       ? chunks.filter(c => c.sceneIdx === i)
       : chunks.filter(c => {
@@ -2732,26 +2781,27 @@ async function splitAudioByScenes() {
       const srt = segChunks.map(x =>
         `${x.idx}\n${secToSRT(x.start)} --> ${secToSRT(x.end)}\n${x.text}\n`
       ).join('\n');
-      zip.file(`第${String(i+1).padStart(2,'0')}幕_${title}.srt`, srt);
+      zip.file(`${String(i+1).padStart(2,'0')}_${title}.srt`, srt);
     }
   }
 
-  // 额外附带：完整 SRT + 切割清单
-  if (lastSRT) zip.file(`${title}_完整字幕.srt`, lastSRT);
+  // 额外附带：完整 SRT + 切割清单（同样用当前面板的编辑内容）
+  const fullSRT = chunksToSRT(chunks);
+  if (fullSRT) zip.file(`${title}_完整字幕.srt`, fullSRT);
   const manifest = points.slice(0, -1).map((p, i) => {
     const e = points[i+1];
-    return `第${i+1}幕  ${secToSRT(p)} → ${secToSRT(e)}  (${(e-p).toFixed(2)} 秒)`;
+    return `${String(i+1).padStart(2,'0')}  ${secToSRT(p)} → ${secToSRT(e)}  (${(e-p).toFixed(2)} 秒)`;
   }).join('\n');
   zip.file('切割清单.txt',
-    `作品：${title}\n总时长：${totalSec.toFixed(2)} 秒\n幕数：${points.length - 1}\n\n${manifest}\n\n切点说明：已吸附到 Whisper 语义边界，避免切断字句。`
+    `作品：${title}\n总时长：${totalSec.toFixed(2)} 秒\n段数：${points.length - 1}\n\n${manifest}\n\n说明：切点与字幕内容均来自面板当前编辑状态。`
   );
 
   status.innerHTML = '📦 打包 ZIP 中...';
   const blob = await zip.generateAsync({ type: 'blob' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${title}_分幕语音包.zip`; a.click();
-  status.innerHTML = `✅ 已下载分幕语音包（${points.length - 1} 幕 WAV + 分段 SRT + 清单）`;
+  a.download = `${title}_语音包.zip`; a.click();
+  status.innerHTML = `✅ 已下载（${points.length - 1} 段 WAV + 分段 SRT + 完整字幕）`;
   showToast(`已打包 ${points.length - 1} 段语音 ✓`);
 }
 
